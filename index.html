@@ -411,6 +411,7 @@ function renderStart(){
       <li><span class="n">3</span><span>Тупик значит выбрать другую дверь в этом же зале. После учёбы попадаешь в новый зал.</span></li>
       <li><span class="n">4</span><span>Учись, пока не откроется дверь с выходом.</span></li>
     </ol>
+    ${MODE==='free'?`<p class="lede" style="font-size:14px">Бесплатно: одна ночь в библиотеке в день. С подпиской за ${PRICE} без ограничений. <button class="linkbtn" id="pay-start" style="color:var(--candle);padding:0;font-size:14px">Оформить</button></p>`:''}
     <div class="picker">
       <span class="eyebrow" id="lbl">Максимум на сегодня</span>
       <div class="chips" role="group" aria-labelledby="lbl">${opts.map(o=>`<button class="chip" id="max-${o}" data-max="${o}" aria-pressed="${o===pref}">${fmt(o)}</button>`).join('')}</div>
@@ -422,7 +423,8 @@ function renderStart(){
     </div>
   </section>`;
   app.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ pref=+b.dataset.max; save(); renderStart(); document.getElementById('max-'+pref).focus(); });
-  $('#go').onclick=()=>{ unlockAudio(); newGame(pref); save(); render(); };
+  $('#go').onclick=()=>{ if(MODE==='free'){ if(playedToday()) return renderLimit(); markPlayed(); } unlockAudio(); newGame(pref); save(); render(); };
+  const pb=$('#pay-start'); if(pb) pb.onclick=openPay;
   if(has) $('#cont').onclick=()=>{ unlockAudio(); render(); };
   bindStatsBtn();
 }
@@ -432,6 +434,36 @@ function renderStart(){
 const TG = window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData ? window.Telegram.WebApp : null;
 const CLOUD = TG && TG.CloudStorage && TG.isVersionAtLeast && TG.isVersionAtLeast('6.9') ? TG.CloudStorage : null;
 const SKEY = 'bib-stats';
+// ===== НАСТРОЙКИ =====
+const MODE = 'free';                        // 'free' — бесплатный бот (1 ночь в день), 'full' — для подписчиков
+const PAY_URL = 'https://t.me/ВСТАВЬ_ССЫЛКУ'; // ссылка на оплату подписки (из сервиса подписок)
+const PRICE = '399 ₽ в месяц';
+// =====================
+const DKEY = 'bib-free-day';
+let FREE_DAY = '';
+function playedToday(){ return FREE_DAY === dayKey(new Date()); }
+function markPlayed(){
+  FREE_DAY = dayKey(new Date());
+  try{ localStorage.setItem(DKEY, FREE_DAY); }catch(e){}
+  if(CLOUD){ try{ CLOUD.setItem(DKEY, FREE_DAY, ()=>{}); }catch(e){} }
+}
+function openPay(){
+  if(TG && TG.openTelegramLink && /^https:\/\/t\.me\//.test(PAY_URL)){ try{ TG.openTelegramLink(PAY_URL); return; }catch(e){} }
+  if(TG && TG.openLink){ try{ TG.openLink(PAY_URL); return; }catch(e){} }
+  window.open(PAY_URL, '_blank');
+}
+function renderLimit(){
+  app.innerHTML = `<section class="exitscreen">
+    <span class="arch" aria-hidden="true" style="filter:grayscale(.6) brightness(.7)">${I.moon}</span>
+    <span class="eyebrow">На сегодня всё</span>
+    <h1>Библиотека закрыта до завтра</h1>
+    <p class="lede" style="text-align:center">Бесплатная ночь сегодня уже была, следующая откроется после полуночи. С подпиской двери открыты в любое время и сколько угодно раз.</p>
+    <button class="btn" id="pay">Оформить подписку · ${PRICE}</button>
+    <button class="btn ghost" id="back">Назад</button>
+  </section>`;
+  $('#pay').onclick = openPay;
+  $('#back').onclick = renderStart;
+}
 let STATS = {};
 function dayKey(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function loadStatsLocal(){ try{ STATS = JSON.parse(localStorage.getItem(SKEY)||'{}') || {}; }catch(e){ STATS = {}; } }
@@ -443,7 +475,9 @@ function saveStats(){
   if(CLOUD && v.length < 4000){ try{ CLOUD.setItem(SKEY, v, ()=>{}); }catch(e){} }
 }
 function mergeCloud(done){
+  try{ FREE_DAY = localStorage.getItem(DKEY) || ''; }catch(e){}
   if(!CLOUD) return done && done();
+  try{ CLOUD.getItem(DKEY, (err, v)=>{ if(!err && v && v > FREE_DAY) FREE_DAY = v; }); }catch(e){}
   try{
     CLOUD.getItem(SKEY, (err, v)=>{
       if(!err && v){ try{ const c = JSON.parse(v); for(const k in c){ STATS[k] = Math.max(STATS[k]||0, c[k]||0); } }catch(e){} saveStats(); }
